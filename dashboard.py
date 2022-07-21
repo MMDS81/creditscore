@@ -1,187 +1,200 @@
-# ceci est exemple échantillon de 200 individus
-
 import requests
-import streamlit as st
+import json
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import plotly.express as px
-import pickle
-import shap
-from fastapi import FastAPI
-# importer les données
+import numpy as np
+import streamlit as st
+from sklearn.impute import SimpleImputer
+
+
+
+@st.cache(allow_output_mutation=True)
+def select_col_by_type(df, col_type):
+    var_object = []
+    for col in df.select_dtypes(col_type):
+        var_object.append(col)
+    return var_object
+
+@st.cache(allow_output_mutation=True)
+def handle_type(df):
+    cat_var = select_col_by_type(df, "object")
+    int_var = select_col_by_type(df, "int")
+    float_var = select_col_by_type(df, "float")
+    num_var = int_var + float_var
+    return cat_var, num_var
+
+@st.cache(allow_output_mutation=True)
+def imputer_nan(df, strategy, var_type):
+    imputer = SimpleImputer(missing_values=np.nan, strategy=strategy)
+    imputer = imputer.fit(df[var_type])
+    array_type = imputer.transform(df[var_type])
+    df_type = pd.DataFrame(array_type, columns=var_type)
+    return df_type
+
+@st.cache(allow_output_mutation=True)
+def trans_func(df):
+    df = pd.read_csv('application_train.csv')
+    print('Bonjour 1')
+    train_data = df[df.columns[df.isna().sum() / df.shape[0] < 0.5]]
+    cat_var, num_var = handle_type(train_data)
+    df_cat = imputer_nan(train_data, "most_frequent", cat_var)
+    df_num = imputer_nan(train_data, "median", num_var)
+    dummies = pd.get_dummies(df_cat, drop_first=True)
+    concatenate_df = pd.concat([df_num, dummies], axis=1)
+    data = concatenate_df.sample(n=500, random_state=1)
+    print('Bonjour 2')
+    return concatenate_df
+
+@st.cache(allow_output_mutation=True)
+def request_prediction(model_uri, data):
+    headers = {"Content-Type": "application/json"}
+
+    data_json = {'data': data}
+    response = requests.request(method='POST', headers=headers, url=model_uri, json=data_json)
+
+    if response.status_code != 200:
+        raise Exception(
+            "Request failed with status {}, {}".format(response.status_code, response.text))
+
+    return response.json()
+
+
+columns_list = ['SK_ID_CURR', 'EXT_SOURCE_3', 'DAYS_LAST_PHONE_CHANGE', 'REGION_POPULATION_RELATIVE',
+                'TOTALAREA_MODE', 'HOUR_APPR_PROCESS_START', 'DAYS_BIRTH',
+                'DAYS_EMPLOYED', 'AMT_INCOME_TOTAL', 'OBS_60_CNT_SOCIAL_CIRCLE',
+                'FLAG_DOCUMENT_3', 'OBS_30_CNT_SOCIAL_CIRCLE', 'EXT_SOURCE_2',
+                'DEF_60_CNT_SOCIAL_CIRCLE', 'AMT_ANNUITY', 'DAYS_ID_PUBLISH',
+                'DEF_30_CNT_SOCIAL_CIRCLE', 'AMT_GOODS_PRICE',
+                # 'NAME_CONTRACT_TYPE', 'CODE_GENDER'
+                ]
+infos_descrip = ['SK_ID_CURR',
+                 "DAYS_BIRTH",
+                 "CODE_GENDER",
+                 "CNT_CHILDREN",
+                 "NAME_FAMILY_STATUS",
+                 "NAME_HOUSING_TYPE",
+                 "NAME_CONTRACT_TYPE",
+                 "NAME_INCOME_TYPE",
+                 "OCCUPATION_TYPE",
+                 "AMT_INCOME_TOTAL"
+                 ]
+
+
+
 def main():
-    @st.cache
-    def chargement_data():
-        x_test = pd.read_csv('data.csv')
-        target = pd.read_csv('target.csv')
-        x_test.drop('Unnamed: 0', axis=1, inplace=True)
-        target.drop('Unnamed: 0', axis=1, inplace=True)
-
-        # echantillonnage
-        x_test = x_test.head(200)
-        target = target.head(200)
-
-    return x_test, target
-
-    def charger_model():
-        pickle_in = open('mypicklefile', 'rb')
-        clf = pickle.load(pickle_in)
-        return clf
-
-    def identite_client(data, id):
-        data_client = data[data['SK_ID_CURR'] == int(id)]
-        return data_client
-
-    def load_age_population(data):
-        data_age = round((data["DAYS_BIRTH"] / -365), 2)
-        return data_age
-
-    def load_income_population(data):
-        data_revenu = data[data['AMT_INCOME_TOTAL'] < 350000]
-        return data_revenu
-
-    def load_children_population(data):
-        data_children = data[data['CNT_CHILDREN'] < 5]
-        return data_children
-
-    # récupérer la liste des identifiants des clients
-    list_ids = x_test['SK_ID_CURR'].tolist()
-
-    # rajouter la liste des clients à une liste déroulante
-    st.sidebar.header("L'identifiant du client :")
-    id = st.sidebar.selectbox("Veuillez choisir votre numéro d'identifiiant", list_ids)
-    st.sidebar.write('Votre id_client est:', id)
-
-    def fetch(session, url):
-        try:
-            result = session.get(url)
-            return result.json()
-        except Exception:
-            return {}
-
-    with st.sidebar.form(" "):
-        st.sidebar.columns(2)
-        submitted = st.form_submit_button("prediction")
-
-    # appel à l'api de prediction
-    session = requests.Session()
-    if submitted:
-        probabilite = fetch(session, f"https://creditscoring.herokuapp.com/predict/{id}")
-        st.sidebar.write("**Probabilité :**", round(float(probabilite) * 100, 2), "**%**")
-        if (float(probabilite) < 0.5):
-            decision = "<font color='green'>**Prêt accordé!**</font>"
-        else:
-            decision = "<font color='red'>**Prêt rejeté!**</font>"
-            st.sidebar.write("**Decision :**", decision, unsafe_allow_html=True)
-
-    # mise en forme du titre
     html_temp = """
-    <div style="background-color: tomato; padding:10px; border-radius:10px">
-    <h1 style="color: white; text-align:center">Dashboard Scoring Credit</h1>
-    </div>
-    <p style="font-size: 20px; font-weight: bold; text-align:center">Credit decision support…</p>
-    """
+       <div style="background-color:tomato;padding:10px">
+       <h2 style="color:white;text-align:center;"> Dashboard - Décision d'octroi de crédit </h2>
+       </div>
+       """
+    st.set_page_config(
+
+    page_title = "Prêt à dépenser - Prediction platform",
+
+    layout = "wide",
+
+    initial_sidebar_state = "expanded",
+
+    )
     st.markdown(html_temp, unsafe_allow_html=True)
-    st.markdown('##')
-    st.markdown('##')
+    ML_URI = "https://creditscoreap.herokuapp.com/predict"
+    "\n"
+    st.sidebar.image("pretadep.png")
 
-    # afficher les données de l'utilisateur
-    st.write(' **Veuillez consulter vos données :**')
-    infos_client = identite_client(x_test, id)
-    st.write(identite_client(x_test, id))
+    # loading the useful datasets
+    @st.cache(allow_output_mutation=True)
+    def load_data(nrows):
+        data = pd.read_csv('application_train.csv', nrows=nrows)
+        data = data.sample(n=nrows, random_state=1)
+        return data
 
-    st.markdown('##')
-    st.markdown('##')
+    data = load_data(1000)
 
-    # afficher les distributions des principaux features
-    st.write(' **Veuillez cocher les données dont vous voulez voir la distribution :**')
-    # distribution d'age
+    @st.cache(allow_output_mutation=True)
+    def load_data1(nrows):
+        data = pd.read_csv('application_train.csv', nrows=nrows)
+        samp = data.sample(n=nrows, random_state=1)
+        data2 = samp[infos_descrip].set_index('SK_ID_CURR')
+        data1 = samp[columns_list].set_index('SK_ID_CURR')
+        return data1, data2
 
-    if st.checkbox("Age"):
-        data_age = load_age_population(x_test)
-        fig, ax = plt.subplots(figsize=(10, 5))
-        sns.histplot(data_age, edgecolor='k', color="goldenrod", bins=20)
-        ax.axvline(int(infos_client["DAYS_BIRTH"].values / -365), color="green", linestyle='--')
-        ax.set(title='Age du client', xlabel='Age(année)', ylabel='')
-        st.pyplot(fig)
+    data1, data2 = load_data1(1000)
+    # Selecting one client
+    id_client = st.sidebar.selectbox('Select ID Client :', data1.index)
+    if id_client:
+        # Visualizing the personal data of the selected client
+        st.sidebar.subheader('Les informations du client %s : ' % id_client)
+        st.sidebar.table(data2.astype(str).loc[id_client][1:9])
+        cat_var, num_var = handle_type(data1)
+        df_num = imputer_nan(data1, "median", num_var)
+        id_cli = data['SK_ID_CURR']
+        data_client = pd.concat([id_cli, df_num], axis=1)
+        data_client1 = data_client[data_client['SK_ID_CURR'] == id_client]
+        data_client2 = data_client1.drop("SK_ID_CURR", axis=1)
+        data_master = data_client2.to_dict('records')[0]
+        data_client5 = json.dumps(data_master)
+        pred = None
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        import ast
+        response = requests.request("POST", ML_URI, headers=headers, data=data_client5)
+        tab = response.text
+        tab1 = ast.literal_eval(tab)
+        tab2 = tab1["prediction"]
+        for cle, valeur in tab2.items():
+            solvabilit = cle
+            defaut = valeur
+        df_score = pd.DataFrame.from_dict(tab1).reset_index()
+        df_score.columns = ["Solva", "Defaut"]
+        df_score = df_score.apply(pd.to_numeric)
+        # Visualizing the score and decision about loan granting
+        '# Client ID number %s' % id_client
+        solva = round(df_score["Solva"][0], 2)
+        defaut_pay = round(df_score["Defaut"][0], 2)
 
-    # distribution des revenus
-    if st.checkbox("Revenues"):
-        data_revenu = load_income_population(x_test)
-        fig, ax = plt.subplots(figsize=(10, 5))
-        sns.histplot(data_revenu["AMT_INCOME_TOTAL"], edgecolor='k', color="goldenrod", bins=10)
-        ax.axvline(int(infos_client["AMT_INCOME_TOTAL"].values[0]), color="green", linestyle='--')
-        ax.set(title='Revenues des clients', xlabel='Revenues (USD)', ylabel='')
-        st.pyplot(fig)
+        if st.checkbox('La décision finale'):
+            if solva > 0.7:
+                st.success("Client éligible au prêt")
+            else:
+                st.error("Ce client est à risque")
 
-    # distribution du nombre d'enfants
-    if st.checkbox("Nombre d'enfants"):
-        data_children = load_children_population(x_test)
-        fig, ax = plt.subplots(figsize=(10, 5))
-        sns.histplot(data_children["CNT_CHILDREN"], edgecolor='k', color="goldenrod", bins=20)
-        ax.axvline(int(data_children["CNT_CHILDREN"].values[0]), color="green", linestyle='--')
-        ax.set(title="Nombre d'enfants des clients", xlabel="Nombre d'enfants", ylabel='')
-        st.pyplot(fig)
+        "\n"
 
-    # afficher les relations entre variables
-    if st.checkbox("consulter les relations entre variables"):
-        data_sk = x_test.reset_index(drop=False)
-        data_sk.DAYS_BIRTH = (data_sk['DAYS_BIRTH'] / -365).round(1)
-        fig, ax = plt.subplots(figsize=(10, 10))
-        fig = px.scatter(data_sk, x='DAYS_BIRTH', y="AMT_INCOME_TOTAL",
-                         size="AMT_INCOME_TOTAL", color='CODE_GENDER',
-                         hover_data=['NAME_FAMILY_STATUS', 'CNT_CHILDREN', 'NAME_CONTRACT_TYPE', 'SK_ID_CURR'])
+        if st.checkbox('Voulez-vous consulter les probabilités de remboursement et non ?'):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                "\n"
+                "\n"
+                '### Proba de remboursement : %s' % "{:.0%}".format(solva)
+            with col2:
+                "\n"
+                "\n"
+                '### Proba de Défaut : %s' % "{:.0%}".format(defaut_pay)
 
-        fig.update_layout({'plot_bgcolor': '#f0f0f0'},
-                          title={'text': "Relation Age / Income Total", 'x': 0.5, 'xanchor': 'center'},
-                          title_font=dict(size=20, family='Verdana'), legend=dict(y=1.1, orientation='h'))
+            with col3:
+                st.header("Visualisation")
+                st.bar_chart(df_score, width=200, height=200, use_container_width=True)
+        "\n"
+        # Visualizing the most important features ordered by importance
+        if st.checkbox('Souhaitez-vous voir les informations qui ont influé sur cette décision ?'):
+                '### Les informations les plus importantes dans la décision :'
+                st.image("features_importance_1.png")
 
-        fig.update_traces(marker=dict(line=dict(width=0.5, color='#3a352a')), selector=dict(mode='markers'))
-        fig.update_xaxes(showline=True, linewidth=2, linecolor='#f0f0f0', gridcolor='#cbcbcb',
-                         title="Age", title_font=dict(size=18, family='Verdana'))
-        fig.update_yaxes(showline=True, linewidth=2, linecolor='#f0f0f0', gridcolor='#cbcbcb',
-                         title="Income Total", title_font=dict(size=18, family='Verdana'))
-        st.plotly_chart(fig)
+        if st.checkbox('Les autres clients similaires  ?'):
+            '### Les autres clients similaires %s' % id_client
+            feature_name = st.selectbox('Selecting feature name :', [
+                 "CODE_GENDER",
+                 "CNT_CHILDREN",
+                 "NAME_FAMILY_STATUS",
+                 "NAME_HOUSING_TYPE",
+                 "NAME_CONTRACT_TYPE",
+                 "NAME_INCOME_TYPE",
+                 "OCCUPATION_TYPE",
 
-        data_children = load_children_population(x_test)
-        fig2, ax = plt.subplots(figsize=(10, 10))
-        fig2 = px.scatter(data_children, x='CNT_CHILDREN', y="AMT_INCOME_TOTAL",
-                          size="AMT_INCOME_TOTAL", color='CODE_GENDER',
-                          hover_data=['NAME_FAMILY_STATUS', 'CNT_CHILDREN', 'NAME_CONTRACT_TYPE', 'SK_ID_CURR'])
+                                                                         ]
+                                        )
+            data_feature = data[feature_name].value_counts(normalize=True)
+            st.bar_chart(data_feature)
 
-        fig2.update_layout({'plot_bgcolor': '#f0f0f0'},
-                           title={'text': "Relation nombre des enfants / Income Total", 'x': 0.5, 'xanchor': 'center'},
-                           title_font=dict(size=20, family='Verdana'), legend=dict(y=1.1, orientation='h'))
-
-        fig2.update_traces(marker=dict(line=dict(width=0.5, color='#3a352a')), selector=dict(mode='markers'))
-        fig2.update_xaxes(showline=True, linewidth=2, linecolor='#f0f0f0', gridcolor='#cbcbcb',
-                          title="nbre enfants", title_font=dict(size=18, family='Verdana'))
-        fig.update_yaxes(showline=True, linewidth=2, linecolor='#f0f0f0', gridcolor='#cbcbcb',
-                         title="Income Total", title_font=dict(size=18, family='Verdana'))
-        st.plotly_chart(fig2)
-
-        # feature importance locale
-        st.markdown('##')
-        st.markdown('##')
-        st.write(' **Les données qui ont influencé la décision prise :**')
-    # compute shap values
-
-    if st.checkbox("Consulter "):
-        st.write(
-            "**Description :** vous êtes en risque de refus à cause des données marquées en rouge. Ceux marquées en bleu favorisent l'acceptation de votre demande.")
-        shap.initjs()
-        X = x_test
-        X = X[X.index == id]
-        number = st.slider("Veuillez sélectionner le nombre de features …", 0, 20, 5)
-    # afficher le graphe de feature importance local
-    model = load_model()
-    explainer = shap.Explainer(model, x_test)
-    shap_values = explainer(x_test)
-    fig, ax = plt.subplots(figsize=(10, 10))
-    shap.plots.bar(shap_values[0], max_display=number)
-    st.pyplot(fig)
-
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+if __name__ == '__main__':
+    main()
