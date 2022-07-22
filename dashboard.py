@@ -13,14 +13,11 @@ from fastapi import FastAPI
 def main():
     @st.cache
     def chargement_data():
-        data = pd.read_csv('data.csv')
-        target = pd.read_csv('target.csv')
+        data = pd.read_csv('data_vf.csv')
         data.drop('Unnamed: 0', axis=1, inplace=True)
-        target.drop('Unnamed: 0', axis=1, inplace=True)
 
         # echantillonnage
         data = data.head(200)
-        target = target.head(200)
 
     return data, target
 
