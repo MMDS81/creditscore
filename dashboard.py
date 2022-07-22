@@ -64,7 +64,7 @@ def main():
     # appel à l'api de prediction
     session = requests.Session()
     if submitted:
-        probabilite = fetch(session, f"https://creditscoring.herokuapp.com/predict/{id}")
+        probabilite = fetch(session, f"https://creditscoringp7.herokuapp.com/predict/{id}")
         st.sidebar.write("**Probabilité :**", round(float(probabilite) * 100, 2), "**%**")
         if (float(probabilite) < 0.5):
             decision = "<font color='green'>**Prêt accordé!**</font>"
